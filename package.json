@@ -14,6 +14,7 @@
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "1.20.2",
 		"agents": "^0.2.19",
+		"cheerio": "^1.1.2",
 		"zod": "^3.25.76"
 	},
 	"devDependencies": {
@@ -21,5 +22,6 @@
 		"@types/node": "^24.10.1",
 		"typescript": "5.9.3",
 		"wrangler": "^4.51.0"
-	}
+	},
+	"packageManager": "yarn@1.22.21+sha1.1959a18351b811cdeedbd484a8f86c3cc3bbaf72"
 }
