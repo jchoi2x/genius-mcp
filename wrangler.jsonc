@@ -20,12 +20,21 @@
 				"MyMCP"
 			],
 			"tag": "v1"
+		},
+		{
+			"renamed_classes": [
+				{
+					"from": "MyMCP",
+					"to": "GeniusMcpServer"
+				}
+			],
+			"tag": "v2"
 		}
 	],
 	"durable_objects": {
 		"bindings": [
 			{
-				"class_name": "MyMCP",
+				"class_name": "GeniusMcpServer",
 				"name": "MCP_OBJECT"
 			}
 		]
