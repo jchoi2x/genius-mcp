@@ -37,7 +37,8 @@ export class MyMCP extends McpAgent {
       {
         q: z
           .string()
-          .describe("The song name to search for"),
+          .describe("The song name to search for")
+          .default('All my life'),
       },
       async ({ q }) => {
         try {
@@ -97,12 +98,79 @@ export class MyMCP extends McpAgent {
       }
     );
 
+    this.server.tool('genius-song-lyrics', `Get a song's lyrics by song id`, {
+      songId: z.number().describe("The numeric ID of the song in Genius.").default(378195),
+    }, async ({ songId }) => {
+
+      console.error(`Reading the song lyrics resource genius://songs/${songId}/lyrics`);
+
+      try {
+        const songResponse = await this.makeGeniusRequest<GeniusSongApiResponse>(
+          `/songs/${songId}`,
+          undefined
+        );
+
+        const songDetails = songResponse?.response?.song;
+
+        if (!songDetails) {
+          throw new Error(
+            "No song details found for the provided ID or unexpected response from the API."
+          );
+        }
+        const producerNames =
+          songDetails.producer_artists?.map((a) => a.name).join(", ") ||
+          "No producers listed";
+        const writerNames =
+          songDetails.writer_artists?.map((a) => a.name).join(", ") ||
+          "No writers listed";
+        const samplesUsed = songDetails.song_relationships
+          ?.filter((rel) => rel.type === "samples")
+          .flatMap((rel) =>
+            rel.songs.map((s) => `"${s.title}" por ${s.artist_names}`)
+          )
+          .join(", ");
+        const lyrics = await scrapeLyrics(songDetails.url);
+
+        const plainTextContent = `
+          Title: ${songDetails.title || "Unknown"}
+          Artist(s): ${songDetails.artist_names || "Unknown"}
+          Full Title: ${songDetails.full_title || "Unknown"}
+          ID: ${songDetails.id || "Unknown"}
+          URL: ${songDetails.url || "Unknown"}
+          Fecha de lanzamiento: ${songDetails.release_date_for_display || "Unknown"}
+          Album: ${songDetails.album?.name || "Unknown"} by ${songDetails.album?.artist_names || "Unknown Artist"}
+          Views: ${songDetails.stats?.pageviews?.toLocaleString() || "Unknown"}
+          Lyrics State: ${songDetails.lyrics_state || "Unknown"}
+          Producers: ${producerNames}
+          Writers: ${writerNames}
+          Samples used: ${samplesUsed || "None"}
+          Lyrics: \n${lyrics ? lyrics : "None"}
+        `.trim();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: plainTextContent,
+            },
+          ],
+        };
+      } catch (error: any) {
+        console.error(
+          `Error reading the song resource genius://songs/${songId}: ${error.message}`
+        );
+        throw new Error(
+          `Could not read the song resource ${songId}: ${error.message}`
+        );
+      }
+    });
+
     // genius-list-artist-songs
     this.server.tool(
       "genius-list-artist-songs",
       "List songs of an artist in Genius by their ID",
       {
-        artistId: z.number().describe("The numeric ID of the artist in Genius."),
+        artistId: z.number().describe("The numeric ID of the artist in Genius.").default(21964),
         sort: z
           .enum(["title", "popularity"])
           .optional()
@@ -175,6 +243,7 @@ export class MyMCP extends McpAgent {
         }
       }
     );
+
 
   }
 
@@ -363,7 +432,6 @@ export class MyMCP extends McpAgent {
                 text: plainTextContent,
               },
             ],
-            // Opcional: añadir JSON completo
             // {
             //   uri: uri.href,
             //   mimeType: "application/json",
@@ -378,37 +446,6 @@ export class MyMCP extends McpAgent {
             `Could not read the artist resource ${artistId}: ${error.message}`
           );
         }
-      }
-    );
-
-    // --- IMPLEMENTACIÓN DE PROMPTS (PROMPTS) ---
-
-    // Implementa el prompt 'genius-search-prompt' (Ya lo tienes, lo incluimos completo)
-    this.server.prompt(
-      "genius-search-prompt",
-      "Prepare a query to search for content in Genius.",
-      {
-        // Podemos añadir un argumento opcional para el término inicial si el cliente soporta prompts con argumentos
-        initialQuery: z
-          .string()
-          .optional()
-          .describe("An initial search term to include in the prompt."),
-      },
-      ({ initialQuery }) => {
-        // Ahora la función recibe el argumento si se proporciona
-        const queryText = initialQuery ? ` sobre "${initialQuery}"` : "";
-        return {
-          description: "This prompt helps you search in Genius.",
-          messages: [
-            {
-              role: "user",
-              content: {
-                type: "text",
-                text: `Please help me find information in Genius${queryText}. What do you want to search for?`,
-              },
-            },
-          ],
-        };
       }
     );
   }
