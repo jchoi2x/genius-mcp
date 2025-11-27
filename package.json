@@ -1,26 +1,25 @@
 {
-  "name": "playwright-mcp-example",
-  "version": "0.0.1-next",
-  "description": "Cloudflare Playwright Tools for MCP - Template",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cloudflare/playwright-mcp.git"
-  },
-  "homepage": "https://github.com/cloudflare/playwright-mcp",
-  "engines": {
-    "node": ">=18"
-  },
-  "license": "Apache-2.0",
-  "scripts": {
-    "build": "tsc",
-    "deploy": "wrangler deploy"
-  },
-  "dependencies": {
-    "@cloudflare/playwright-mcp": "^0.0.5"
-  },
-  "devDependencies": {
-    "@types/node": "^22.14.1",
-    "typescript": "^5.8.2",
-    "wrangler": "^4.26.0"
-  }
+	"name": "remote-mcp-server-authless",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"format": "biome format --write",
+		"lint:fix": "biome lint --fix",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "1.20.2",
+		"agents": "^0.2.19",
+		"zod": "^3.25.76"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.2",
+		"@types/node": "^24.10.1",
+		"typescript": "5.9.3",
+		"wrangler": "^4.51.0"
+	}
 }
