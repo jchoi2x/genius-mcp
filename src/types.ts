@@ -59,6 +59,11 @@ export interface SongDetails {
   stats?: {
     pageviews?: number;
   };
+  primary_artist: {
+    name: string;
+    id: number;
+    url: string;
+  },
   producer_artists?: Array<{ name: string; url?: string }>;
   writer_artists?: Array<{ name: string; url?: string }>;
   song_relationships?: Array<{

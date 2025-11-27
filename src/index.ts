@@ -134,6 +134,7 @@ export class MyMCP extends McpAgent {
         const plainTextContent = `
           Title: ${songDetails.title || "Unknown"}
           Artist(s): ${songDetails.artist_names || "Unknown"}
+          Artist IDs: ${songDetails.primary_artist.id || "Unknown"}
           Full Title: ${songDetails.full_title || "Unknown"}
           ID: ${songDetails.id || "Unknown"}
           URL: ${songDetails.url || "Unknown"}
@@ -358,6 +359,7 @@ export class MyMCP extends McpAgent {
           const plainTextContent = `
       Title: ${songDetails.title || "Unknown"}
       Artist(s): ${songDetails.artist_names || "Unknown"}
+      Artist IDs: ${songDetails.primary_artist.id || "Unknown"}
       Full Title: ${songDetails.full_title || "Unknown"}
       ID: ${songDetails.id || "Unknown"}
       URL: ${songDetails.url || "Unknown"}
