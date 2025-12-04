@@ -36,7 +36,6 @@ export async function scrapeLyrics(url: string): Promise<string | null> {
     return null;
   }
 
-  console.log('\n\nall classes', lyricsContainers.map((_, el) => $(el).find('br').replaceWith('\n').end().text()).get())
   // Map over elements, get text content, apply regex replacement, and join
   const joinedText = lyricsContainers
     .map((_, element) => $(element).find('br').replaceWith('\n').end().text())
