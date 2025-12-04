@@ -6,11 +6,14 @@
 #### 1.1 Purpose
 This document defines the requirements for a Model Context Protocol (MCP) server that provides AI applications with access to the Genius API, enabling them to search for songs, artists, fetch lyrics, and retrieve music metadata.
 
+**Note:** All tools and resources return data in JSON format for structured, programmatic consumption. Since Genius.com's API doesn't provide lyrics directly, the server scrapes lyrics from HTML pages when needed.
+
 #### 1.2 Goals
 - Provide a standardized MCP interface to the Genius API
 - Enable LLMs to interact with Genius music data through tools and resources
 - Deploy as a scalable serverless solution on Cloudflare Workers
 - Maintain high performance and reliability
+- Return structured JSON responses for easy parsing and integration
 
 #### 1.3 Target Users
 - AI application developers
@@ -22,98 +25,88 @@ This document defines the requirements for a Model Context Protocol (MCP) server
 #### 2.1 Tools
 
 ##### 2.1.1 `genius-search-song`
-**Purpose:** Search for songs by title
+**Purpose:** Search for songs, artists, or web pages in Genius
 
 **Input Parameters:**
-- `title` (string, required): The song title to search for
+- `q` (string, required): The search query (song name, artist name, etc.). Default: "All my life"
 
 **Output:**
-- List of matching songs with metadata (ID, title, artist, URL)
+- JSON object containing:
+  - `query`: The search query used
+  - `results`: Array of search results (songs, artists, or web pages) with:
+    - `type`: Result type ("song", "artist", or "web_page")
+    - `id`: Genius ID
+    - `title`/`name`: Title or name
+    - `artist_names`: Artist names (for songs)
+    - `url`: Genius URL
+    - `primary_artist`: Primary artist info (for songs)
+  - `count`: Number of results
 
 **Success Criteria:**
-- Returns relevant song matches from Genius API
+- Returns relevant matches from Genius API (songs, artists, web pages)
 - Handles API errors gracefully
-- Returns empty results when no matches found
+- Returns empty results array when no matches found
+- Returns results in JSON format
 
-##### 2.1.2 `genius-search-artist`
-**Purpose:** Search for artists by name
+##### 2.1.2 `genius-song-lyrics`
+**Purpose:** Get a song's lyrics and metadata by song ID
 
 **Input Parameters:**
-- `name` (string, required): The artist name to search for
+- `songId` (number, required): The numeric ID of the song in Genius. Default: 378195
 
 **Output:**
-- List of matching artists with metadata (ID, name, URL)
+- JSON object containing complete song data including:
+  - `id`: Song ID
+  - `title`: Song title
+  - `artist_names`: Artist names
+  - `full_title`: Full title
+  - `url`: Genius URL
+  - `release_date`: Release date
+  - `lyrics_state`: Lyrics availability state
+  - `primary_artist`: Primary artist information
+  - `album`: Album information (if available)
+  - `stats`: Statistics (pageviews, etc.)
+  - `producers`: Array of producer information
+  - `writers`: Array of writer information
+  - `samples`: Array of sampled songs
+  - `lyrics`: Song lyrics (scraped from HTML, null if unavailable)
 
 **Success Criteria:**
-- Returns relevant artist matches from Genius API
-- Handles API errors gracefully
-- Returns empty results when no matches found
+- Returns complete song metadata with lyrics
+- Handles songs with incomplete or unavailable lyrics
+- Scrapes lyrics from Genius HTML when API doesn't provide them
+- Returns appropriate error for invalid song IDs
 
 ##### 2.1.3 `genius-list-artist-songs`
-**Purpose:** List all songs by a specific artist
+**Purpose:** List songs of an artist in Genius by their ID
 
 **Input Parameters:**
-- `artistId` (number, required): The Genius artist ID
+- `artistId` (number, required): The numeric ID of the artist in Genius. Default: 21964
+- `sort` (enum, optional): Sorting criterion - "title" (alphabetical) or "popularity"
+- `page` (number, optional): Page number for pagination (starting at 1)
+- `perPage` (number, optional): Number of results per page (maximum 50)
 
 **Output:**
-- List of songs by the artist with basic metadata
+- JSON object containing:
+  - `artist_id`: The artist ID queried
+  - `songs`: Array of songs with:
+    - `id`: Song ID
+    - `title`: Song title
+    - `artist_names`: Artist names
+    - `url`: Genius URL
+    - `full_title`: Full title
+    - `release_date`: Release date
+    - `lyrics_state`: Lyrics availability state
+  - `count`: Number of songs returned
+  - `sort`: Sort option used (or null)
+  - `page`: Page number (or null)
+  - `per_page`: Results per page (or null)
 
 **Success Criteria:**
 - Returns all songs associated with the artist
-- Handles pagination if needed
-- Returns empty list for artists with no songs
-
-##### 2.1.4 `genius-get-song-lyrics`
-**Purpose:** Fetch lyrics for a specific song
-
-**Input Parameters:**
-- `songId` (number, required): The Genius song ID
-
-**Output:**
-- Song lyrics in plain text format
-
-**Success Criteria:**
-- Returns complete lyrics when available
-- Handles songs with incomplete lyrics
-- Returns appropriate message when lyrics unavailable
-
-##### 2.1.5 `genius-get-song`
-**Purpose:** Fetch comprehensive song metadata
-
-**Input Parameters:**
-- `songId` (number, required): The Genius song ID
-
-**Output:**
-- Complete song metadata including:
-  - Title, artist, album
-  - Release date
-  - URL, pageviews
-  - Producer and writer information
-  - Song relationships (samples, remixes, etc.)
-  - Media links
-
-**Success Criteria:**
-- Returns all available song metadata
-- Handles missing optional fields gracefully
-- Formats data for easy consumption by LLMs
-
-##### 2.1.6 `genius-get-artist`
-**Purpose:** Fetch artist metadata
-
-**Input Parameters:**
-- `artistId` (number, required): The Genius artist ID
-
-**Output:**
-- Artist metadata including:
-  - Name, ID, URL
-  - Description
-  - Verification status
-  - Follower count (if available)
-
-**Success Criteria:**
-- Returns all available artist metadata
-- Handles missing optional fields gracefully
-- Formats data for easy consumption by LLMs
+- Supports pagination and sorting
+- Returns empty songs array for artists with no songs or invalid IDs
+- Handles API errors gracefully
 
 #### 2.2 Resources
 
@@ -123,41 +116,59 @@ This document defines the requirements for a Model Context Protocol (MCP) server
 **Purpose:** Provide read-only access to artist information
 
 **Content Format:**
-- Plain text format for easy LLM consumption
-- Optional JSON format for structured data
+- JSON format (`application/json`) containing:
+  - `id`: Artist ID
+  - `name`: Artist name
+  - `url`: Genius URL
+  - `description`: Object with `plain` and `html` description fields
 
 **Success Criteria:**
-- Returns artist information when valid ID provided
+- Returns artist information in JSON format when valid ID provided
 - Returns appropriate error for invalid IDs
-- Supports resource listing (if applicable)
+- Does not support resource listing
 
 ##### 2.2.2 `genius-song`
 **URI Pattern:** `genius://songs/{id}`
 
-**Purpose:** Provide read-only access to song metadata
+**Purpose:** Provide read-only access to song metadata (without lyrics)
 
 **Content Format:**
-- Plain text format for easy LLM consumption
-- Optional JSON format for structured data
+- JSON format (`application/json`) containing:
+  - `id`: Song ID
+  - `title`: Song title
+  - `artist_names`: Artist names
+  - `full_title`: Full title
+  - `url`: Genius URL
+  - `release_date`: Release date
+  - `lyrics_state`: Lyrics availability state
+  - `primary_artist`: Primary artist information
+  - `album`: Album information (if available)
+  - `stats`: Statistics (pageviews, etc.)
+  - `producers`: Array of producer information
+  - `writers`: Array of writer information
+  - `samples`: Array of sampled songs
 
 **Success Criteria:**
-- Returns song metadata when valid ID provided
+- Returns song metadata in JSON format when valid ID provided
 - Returns appropriate error for invalid IDs
-- Supports resource listing (if applicable)
+- Does not include lyrics (use `genius-song-lyrics` resource for that)
+- Does not support resource listing
 
 ##### 2.2.3 `genius-song-lyrics`
 **URI Pattern:** `genius://songs/{id}/lyrics`
 
-**Purpose:** Provide read-only access to song lyrics
+**Purpose:** Provide read-only access to song metadata with lyrics
 
 **Content Format:**
-- Plain text format for lyrics
-- Optional structured format with annotations
+- JSON format (`application/json`) containing all song metadata plus:
+  - `lyrics`: Song lyrics (scraped from HTML, null if unavailable)
 
 **Success Criteria:**
-- Returns lyrics when available
-- Handles incomplete lyrics appropriately
-- Returns appropriate message when lyrics unavailable
+- Returns song metadata with lyrics in JSON format when valid ID provided
+- Scrapes lyrics from Genius HTML when API doesn't provide them
+- Handles incomplete or unavailable lyrics appropriately
+- Returns appropriate error for invalid IDs
+- Does not support resource listing
 
 ### 3. Technical Requirements
 
@@ -204,33 +215,31 @@ This document defines the requirements for a Model Context Protocol (MCP) server
 - Efficient resource usage
 - Support for high request volumes
 
-### 5. Implementation Phases
+### 5. Implementation Status
 
-#### Phase 1: Core Tools
-- [ ] Implement `genius-search-song`
-- [ ] Implement `genius-search-artist`
-- [ ] Implement `genius-get-song`
-- [ ] Implement `genius-get-artist`
+#### ✅ Phase 1: Core Tools - COMPLETED
+- [x] Implement `genius-search-song` - Returns songs, artists, and web pages
+- [x] Implement `genius-song-lyrics` - Returns song metadata with lyrics
+- [x] Implement `genius-list-artist-songs` - Lists artist songs with pagination and sorting
 
-#### Phase 2: Advanced Features
-- [ ] Implement `genius-list-artist-songs`
-- [ ] Implement `genius-get-song-lyrics`
+#### ✅ Phase 2: Resources - COMPLETED
+- [x] Implement `genius-artist` resource - Returns artist information in JSON
+- [x] Implement `genius-song` resource - Returns song metadata in JSON (without lyrics)
+- [x] Implement `genius-song-lyrics` resource - Returns song metadata with lyrics in JSON
 
-#### Phase 3: Resources
-- [ ] Implement `genius-artist` resource
-- [ ] Implement `genius-song` resource
-- [ ] Implement `genius-song-lyrics` resource
+#### ✅ Phase 3: Prompts - COMPLETED
+- [x] Implement `genius-search-prompt` - Helper prompt for searching Genius
 
-#### Phase 4: Testing & Documentation
+#### ✅ Phase 4: Deployment - COMPLETED
+- [x] Cloudflare Workers deployment configuration
+- [x] Environment variable setup
+- [x] MCP server endpoints configured (`/sse` and `/mcp`)
+
+#### 🔄 Phase 5: Future Enhancements
 - [ ] Unit tests for all tools
 - [ ] Integration tests with Genius API
 - [ ] Error handling tests
-- [ ] Documentation updates
-
-#### Phase 5: Deployment
-- [ ] Cloudflare Workers deployment configuration
-- [ ] Environment variable setup
-- [ ] Production testing
+- [ ] Response caching
 - [ ] Monitoring and logging
 
 ### 6. Success Metrics
