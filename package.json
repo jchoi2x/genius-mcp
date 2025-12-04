@@ -2,11 +2,14 @@
 	"name": "remote-mcp-server-authless",
 	"version": "0.0.0",
 	"private": true,
+	"type": "module",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"format": "biome format --write",
-		"lint:fix": "biome lint --fix",
+		"lint": "NODE_OPTIONS='--no-warnings' eslint .",
+		"lint:fix": "NODE_OPTIONS='--no-warnings' eslint . --fix",
+		"lint:biome": "biome lint --fix",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"type-check": "tsc --noEmit"
@@ -19,8 +22,14 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.2",
+		"@eslint/js": "^9.39.1",
 		"@types/node": "^24.10.1",
+		"@typescript-eslint/eslint-plugin": "^8.48.1",
+		"@typescript-eslint/parser": "^8.48.1",
+		"eslint": "^9.39.1",
+		"eslint-config-prettier": "^10.1.8",
 		"typescript": "5.9.3",
+		"typescript-eslint": "^8.48.1",
 		"wrangler": "^4.51.0"
 	},
 	"packageManager": "yarn@1.22.21+sha1.1959a18351b811cdeedbd484a8f86c3cc3bbaf72"

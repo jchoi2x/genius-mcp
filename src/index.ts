@@ -29,6 +29,70 @@ export class GeniusMcpServer extends McpAgent {
     this.configurePrompts();
   }
 
+  /**
+   * Fetches song details with lyrics for a given song ID
+   * @param songId - The numeric ID of the song in Genius
+   * @returns Song data object with lyrics
+   */
+  private async getSongWithLyrics(songId: number) {
+    const songResponse = await this.makeGeniusRequest<GeniusSongApiResponse>(
+      `/songs/${songId}`,
+      undefined
+    );
+
+    const songDetails = songResponse?.response?.song;
+
+    if (!songDetails) {
+      throw new Error(
+        "No song details found for the provided ID or unexpected response from the API."
+      );
+    }
+
+    const lyrics = await scrapeLyrics(songDetails.url);
+
+    return {
+      id: songDetails.id,
+      title: songDetails.title,
+      artist_names: songDetails.artist_names,
+      full_title: songDetails.full_title,
+      url: songDetails.url,
+      release_date: songDetails.release_date_for_display,
+      lyrics_state: songDetails.lyrics_state,
+      primary_artist: {
+        id: songDetails.primary_artist.id,
+        name: songDetails.primary_artist.name,
+        url: songDetails.primary_artist.url,
+      },
+      album: songDetails.album ? {
+        name: songDetails.album.name,
+        artist_names: songDetails.album.artist_names,
+        url: songDetails.album.url,
+      } : null,
+      stats: songDetails.stats ? {
+        pageviews: songDetails.stats.pageviews,
+      } : null,
+      producers: songDetails.producer_artists?.map((a) => ({
+        name: a.name,
+        url: a.url,
+      })) || [],
+      writers: songDetails.writer_artists?.map((a) => ({
+        name: a.name,
+        url: a.url,
+      })) || [],
+      samples: songDetails.song_relationships
+        ?.filter((rel) => rel.type === "samples")
+        .flatMap((rel) =>
+          rel.songs.map((s) => ({
+            id: s.id,
+            title: s.title,
+            artist_names: s.artist_names,
+            url: s.url,
+          }))
+        ) || [],
+      lyrics: lyrics || null,
+    };
+  }
+
   // genius-search-song
   async configureTools() {
     this.server.tool(
@@ -54,33 +118,63 @@ export class GeniusMcpServer extends McpAgent {
               content: [
                 {
                   type: "text",
-                  text: `No results found in Genius for "${q}".`,
+                  text: JSON.stringify({
+                    query: q,
+                    results: [],
+                    message: `No results found in Genius for "${q}".`,
+                  }, null, 2),
                 },
               ],
             };
           }
 
-          const formattedResults = hits
-            .map((hit) => {
-              const result = hit.result;
-              switch (hit.type) {
-                case "song":
-                  return `Song: "${result.title}" by ${result.artist_names} (ID: ${result.id}, URL: ${result.url}), Artist ID: ${result.primary_artist.id}, Artist Name: ${result.primary_artist.name}, Artist URL: ${result.primary_artist.url}`;
-                case "artist":
-                  return `Artist: ${result.name} (ID: ${result.id}, URL: ${result.url})`;
-                case "web_page":
-                  return `Web Page: "${result.title || result.url}" (ID: ${result.id}, URL: ${result.url})`;
-                default:
-                  return `Unknown result (${hit.type}): ID ${result.id}`;
-              }
-            })
-            .join("\n---\n");
+          const formattedResults = hits.map((hit) => {
+            const result = hit.result;
+            switch (hit.type) {
+              case "song":
+                return {
+                  type: "song",
+                  id: result.id,
+                  title: result.title,
+                  artist_names: result.artist_names,
+                  url: result.url,
+                  primary_artist: {
+                    id: result.primary_artist.id,
+                    name: result.primary_artist.name,
+                    url: result.primary_artist.url,
+                  },
+                };
+              case "artist":
+                return {
+                  type: "artist",
+                  id: result.id,
+                  name: result.name,
+                  url: result.url,
+                };
+              case "web_page":
+                return {
+                  type: "web_page",
+                  id: result.id,
+                  title: result.title || result.url,
+                  url: result.url,
+                };
+              default:
+                return {
+                  type: hit.type,
+                  id: result.id,
+                };
+            }
+          });
 
           return {
             content: [
               {
                 type: "text",
-                text: `Search results for "${q}":\n\n${formattedResults}`,
+                text: JSON.stringify({
+                  query: q,
+                  results: formattedResults,
+                  count: formattedResults.length,
+                }, null, 2),
               },
             ],
           };
@@ -90,7 +184,11 @@ export class GeniusMcpServer extends McpAgent {
             content: [
               {
                 type: "text",
-                text: `Error executing search in Genius: ${error.message}`,
+                text: JSON.stringify({
+                  error: true,
+                  message: `Error executing search in Genius: ${error.message}`,
+                  query: q,
+                }, null, 2),
               },
             ],
           };
@@ -101,58 +199,16 @@ export class GeniusMcpServer extends McpAgent {
     this.server.tool('genius-song-lyrics', `Get a song's lyrics by song id`, {
       songId: z.number().describe("The numeric ID of the song in Genius.").default(378195),
     }, async ({ songId }) => {
-
-      console.error(`Reading the song lyrics resource genius://songs/${songId}/lyrics`);
+      console.info(`Reading the song lyrics resource genius://songs/${songId}/lyrics`);
 
       try {
-        const songResponse = await this.makeGeniusRequest<GeniusSongApiResponse>(
-          `/songs/${songId}`,
-          undefined
-        );
-
-        const songDetails = songResponse?.response?.song;
-
-        if (!songDetails) {
-          throw new Error(
-            "No song details found for the provided ID or unexpected response from the API."
-          );
-        }
-        const producerNames =
-          songDetails.producer_artists?.map((a) => a.name).join(", ") ||
-          "No producers listed";
-        const writerNames =
-          songDetails.writer_artists?.map((a) => a.name).join(", ") ||
-          "No writers listed";
-        const samplesUsed = songDetails.song_relationships
-          ?.filter((rel) => rel.type === "samples")
-          .flatMap((rel) =>
-            rel.songs.map((s) => `"${s.title}" por ${s.artist_names}`)
-          )
-          .join(", ");
-        const lyrics = await scrapeLyrics(songDetails.url);
-
-        const plainTextContent = `
-          Title: ${songDetails.title || "Unknown"}
-          Artist(s): ${songDetails.artist_names || "Unknown"}
-          Artist IDs: ${songDetails.primary_artist.id || "Unknown"}
-          Full Title: ${songDetails.full_title || "Unknown"}
-          ID: ${songDetails.id || "Unknown"}
-          URL: ${songDetails.url || "Unknown"}
-          Fecha de lanzamiento: ${songDetails.release_date_for_display || "Unknown"}
-          Album: ${songDetails.album?.name || "Unknown"} by ${songDetails.album?.artist_names || "Unknown Artist"}
-          Views: ${songDetails.stats?.pageviews?.toLocaleString() || "Unknown"}
-          Lyrics State: ${songDetails.lyrics_state || "Unknown"}
-          Producers: ${producerNames}
-          Writers: ${writerNames}
-          Samples used: ${samplesUsed || "None"}
-          Lyrics: \n${lyrics ? lyrics : "None"}
-        `.trim();
+        const songData = await this.getSongWithLyrics(songId);
 
         return {
           content: [
             {
               type: "text",
-              text: plainTextContent,
+              text: JSON.stringify(songData, null, 2),
             },
           ],
         };
@@ -210,24 +266,38 @@ export class GeniusMcpServer extends McpAgent {
               content: [
                 {
                   type: "text",
-                  text: `No songs found for artist with ID ${artistId} (or the ID is invalid).`,
+                  text: JSON.stringify({
+                    artist_id: artistId,
+                    songs: [],
+                    message: `No songs found for artist with ID ${artistId} (or the ID is invalid).`,
+                  }, null, 2),
                 },
               ],
             };
           }
 
-          const formattedSongs = songs
-            .map(
-              (song) =>
-                `"${song.title}" por ${song.artist_names} (ID: ${song.id}, URL: ${song.url})`
-            )
-            .join("\n");
+          const formattedSongs = songs.map((song) => ({
+            id: song.id,
+            title: song.title,
+            artist_names: song.artist_names,
+            url: song.url,
+            full_title: song.full_title,
+            release_date: song.release_date_for_display,
+            lyrics_state: song.lyrics_state,
+          }));
 
           return {
             content: [
               {
                 type: "text",
-                text: `Songs for artist with ID ${artistId}:\n${formattedSongs}`,
+                text: JSON.stringify({
+                  artist_id: artistId,
+                  songs: formattedSongs,
+                  count: formattedSongs.length,
+                  sort: sort || null,
+                  page: page || null,
+                  per_page: perPage || null,
+                }, null, 2),
               },
             ],
           };
@@ -237,7 +307,11 @@ export class GeniusMcpServer extends McpAgent {
             content: [
               {
                 type: "text",
-                text: `Error listing songs for artist ${artistId}: ${error.message}`,
+                text: JSON.stringify({
+                  error: true,
+                  message: `Error listing songs for artist ${artistId}: ${error.message}`,
+                  artist_id: artistId,
+                }, null, 2),
               },
             ],
           };
@@ -271,41 +345,53 @@ export class GeniusMcpServer extends McpAgent {
               "No song details found for the provided ID or unexpected response from the API."
             );
           }
-          const producerNames =
-            songDetails.producer_artists?.map((a) => a.name).join(", ") ||
-            "No producers listed";
-          const writerNames =
-            songDetails.writer_artists?.map((a) => a.name).join(", ") ||
-            "No writers listed";
-          const samplesUsed = songDetails.song_relationships
-            ?.filter((rel) => rel.type === "samples")
-            .flatMap((rel) =>
-              rel.songs.map((s) => `"${s.title}" por ${s.artist_names}`)
-            )
-            .join(", ");
-          const plainTextContent = `
-      Title: ${songDetails.title || "Unknown"}
-      Artist(s): ${songDetails.artist_names || "Unknown"}
-      Full Title: ${songDetails.full_title || "Unknown"}
-      ID: ${songDetails.id || "Unknown"}
-      URL: ${songDetails.url || "Unknown"}
-      Fecha de lanzamiento: ${songDetails.release_date_for_display || "Unknown"
-            }
-      Album: ${songDetails.album?.name || "Unknown"} by ${songDetails.album?.artist_names || "Unknown Artist"
-            }
-      Views: ${songDetails.stats?.pageviews?.toLocaleString() || "Unknown"}
-      Lyrics State: ${songDetails.lyrics_state || "Unknown"}
-      Producers: ${producerNames}
-      Writers: ${writerNames}
-      Samples used: ${samplesUsed || "None"}
-      `.trim();
+          const songData = {
+            id: songDetails.id,
+            title: songDetails.title,
+            artist_names: songDetails.artist_names,
+            full_title: songDetails.full_title,
+            url: songDetails.url,
+            release_date: songDetails.release_date_for_display,
+            lyrics_state: songDetails.lyrics_state,
+            primary_artist: {
+              id: songDetails.primary_artist.id,
+              name: songDetails.primary_artist.name,
+              url: songDetails.primary_artist.url,
+            },
+            album: songDetails.album ? {
+              name: songDetails.album.name,
+              artist_names: songDetails.album.artist_names,
+              url: songDetails.album.url,
+            } : null,
+            stats: songDetails.stats ? {
+              pageviews: songDetails.stats.pageviews,
+            } : null,
+            producers: songDetails.producer_artists?.map((a) => ({
+              name: a.name,
+              url: a.url,
+            })) || [],
+            writers: songDetails.writer_artists?.map((a) => ({
+              name: a.name,
+              url: a.url,
+            })) || [],
+            samples: songDetails.song_relationships
+              ?.filter((rel) => rel.type === "samples")
+              .flatMap((rel) =>
+                rel.songs.map((s) => ({
+                  id: s.id,
+                  title: s.title,
+                  artist_names: s.artist_names,
+                  url: s.url,
+                }))
+              ) || [],
+          };
 
           return {
             contents: [
               {
                 uri: uri.href,
-                mimeType: "text/plain",
-                text: plainTextContent,
+                mimeType: "application/json",
+                text: JSON.stringify(songData, null, 2),
               },
             ],
           };
@@ -324,63 +410,23 @@ export class GeniusMcpServer extends McpAgent {
       "genius-song-lyrics",
       new ResourceTemplate("genius://songs/{id}/lyrics", { list: undefined }),
       async (uri, { id }) => {
-        const songId = id;
+        const songId = typeof id === 'string' ? parseInt(id, 10) : Array.isArray(id) ? parseInt(id[0], 10) : id;
+
+        if (isNaN(songId)) {
+          throw new Error(`Invalid song ID: ${id}`);
+        }
 
         console.error(`Reading the song lyrics resource genius://songs/${songId}/lyrics`);
 
         try {
-          const songResponse = await this.makeGeniusRequest<GeniusSongApiResponse>(
-            `/songs/${songId}`,
-            undefined
-          );
-
-          const songDetails = songResponse?.response?.song;
-
-          if (!songDetails) {
-            throw new Error(
-              "No song details found for the provided ID or unexpected response from the API."
-            );
-          }
-          const producerNames =
-            songDetails.producer_artists?.map((a) => a.name).join(", ") ||
-            "No producers listed";
-          const writerNames =
-            songDetails.writer_artists?.map((a) => a.name).join(", ") ||
-            "No writers listed";
-          const samplesUsed = songDetails.song_relationships
-            ?.filter((rel) => rel.type === "samples")
-            .flatMap((rel) =>
-              rel.songs.map((s) => `"${s.title}" por ${s.artist_names}`)
-            )
-            .join(", ");
-          const lyrics = await scrapeLyrics(songDetails.url);
-
-          // Formatear detalles en texto plano para fácil consumo por LLM
-          const plainTextContent = `
-      Title: ${songDetails.title || "Unknown"}
-      Artist(s): ${songDetails.artist_names || "Unknown"}
-      Artist IDs: ${songDetails.primary_artist.id || "Unknown"}
-      Full Title: ${songDetails.full_title || "Unknown"}
-      ID: ${songDetails.id || "Unknown"}
-      URL: ${songDetails.url || "Unknown"}
-      Fecha de lanzamiento: ${songDetails.release_date_for_display || "Unknown"
-            }
-      Album: ${songDetails.album?.name || "Unknown"} by ${songDetails.album?.artist_names || "Unknown Artist"
-            }
-      Views: ${songDetails.stats?.pageviews?.toLocaleString() || "Unknown"}
-      Lyrics State: ${songDetails.lyrics_state || "Unknown"}
-      Producers: ${producerNames}
-      Writers: ${writerNames}
-      Samples used: ${samplesUsed || "None"}
-      Lyrics: \n${lyrics ? lyrics : "None"}
-      `.trim();
+          const songData = await this.getSongWithLyrics(songId);
 
           return {
             contents: [
               {
                 uri: uri.href,
-                mimeType: "text/plain",
-                text: plainTextContent,
+                mimeType: "application/json",
+                text: JSON.stringify(songData, null, 2),
               },
             ],
           };
@@ -418,27 +464,24 @@ export class GeniusMcpServer extends McpAgent {
             );
           }
 
-          const plainTextContent = `
-  Artist: ${artistDetails.name}
-  ID: ${artistDetails.id}
-  URL: ${artistDetails.url}
-  Description (plain text): ${artistDetails.description?.plain || "Not available"
-            }
-  `.trim();
+          const artistData = {
+            id: artistDetails.id,
+            name: artistDetails.name,
+            url: artistDetails.url,
+            description: {
+              plain: artistDetails.description?.plain || null,
+              html: artistDetails.description?.html || null,
+            },
+          };
 
           return {
             contents: [
               {
                 uri: uri.href,
-                mimeType: "text/plain",
-                text: plainTextContent,
+                mimeType: "application/json",
+                text: JSON.stringify(artistData, null, 2),
               },
             ],
-            // {
-            //   uri: uri.href,
-            //   mimeType: "application/json",
-            //   text: JSON.stringify(artistDetails, null, 2)
-            // }
           };
         } catch (error: any) {
           console.error(
@@ -456,8 +499,7 @@ export class GeniusMcpServer extends McpAgent {
   async configurePrompts() {
     this.server.prompt(
       "genius-search-prompt",
-      "Prepare a query to search for content in Genius.",
-      {
+      "Prepare a query to search for content in Genius.", {
         // We can add an optional argument for the initial search term if the client supports prompts with arguments
         initialQuery: z
           .string()

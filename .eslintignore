@@ -1,0 +1,7 @@
+node_modules/
+dist/
+build/
+.wrangler/
+worker-configuration.d.ts
+*.config.js
+.eslintcache
